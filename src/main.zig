@@ -44,15 +44,20 @@ fn middle() !void {
 
 fn client(address: std.net.Address) !void {
     var stream = try std.net.tcpConnectToAddress(address);
-    var buf = [1]u8{0} ** 14;
+    var buf = [1]u8{0} ** 24;
     var len: usize = undefined;
     len = 0;
-    while (len < 11) {
-        len = try stream.reader().read(&buf);
-    }
-    std.log.debug("yuh: {s} {s}", .{ buf[0..7], buf[7..] });
-    const port = try std.fmt.parseInt(u16, buf[7..], 10);
-    const ip4 = try std.net.Address.parseIp4(buf[0..7], port);
+    len = try stream.reader().read(&buf);
+    var i: usize = 0;
+    while (buf[i] != ':') : (i += 1) {}
+    var j = i;
+    while (!std.ascii.isDigit(buf[j])) : (j += 1) {}
+    const port_start = j;
+    while (std.ascii.isDigit(buf[j])) : (j += 1) {}
+    const port_end = port_start + j - port_start;
+    std.log.debug("yuh: {s} {s}", .{ buf[0..i], buf[port_start..port_end] });
+    const port = try std.fmt.parseInt(u16, buf[port_start..port_end], 10);
+    const ip4 = try std.net.Address.parseIp4(buf[0..i], port);
     std.log.debug("Got ip4: {?}", .{ip4});
 }
 
