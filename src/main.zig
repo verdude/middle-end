@@ -45,9 +45,9 @@ fn middle() !void {
 fn client(address: std.net.Address) !void {
     var stream = try std.net.tcpConnectToAddress(address);
     var buf = [1]u8{0} ** 24;
-    var len: usize = undefined;
-    len = 0;
-    len = try stream.reader().read(&buf);
+    if (try stream.reader().read(&buf) == 0) {
+        std.log.err("Connection closed...", .{});
+    }
     var i: usize = 0;
     while (buf[i] != ':') : (i += 1) {}
     var j = i;
@@ -59,6 +59,18 @@ fn client(address: std.net.Address) !void {
     const port = try std.fmt.parseInt(u16, buf[port_start..port_end], 10);
     const ip4 = try std.net.Address.parseIp4(buf[0..i], port);
     std.log.debug("Got ip4: {?}", .{ip4});
+
+    var peer = try std.net.tcpConnectToAddress(address);
+    if (try peer.writer().write("你好我愛你") == 0) {
+        std.log.err("大過", .{});
+        return error{cuole}.cuole;
+    }
+    const len = try peer.reader().read(&buf);
+    if (len == 0) {
+        std.log.err("真的不好", .{});
+        return error{cuole}.cuole;
+    }
+    std.log.info("Received a message: {s}", .{buf[0..len]});
 }
 
 pub fn main() !void {
