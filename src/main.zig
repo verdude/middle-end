@@ -1,5 +1,6 @@
 const std = @import("std");
 const ProtoParser = @import("./proto.zig");
+const ConnectionManager = @import("./connection_manager.zig");
 
 const os = std.os;
 
@@ -42,7 +43,6 @@ fn middle() !void {
 
             std.log.info("傳送到一: 自己的數字：「{?}」", .{c1});
             try ProtoParser.writePeer(con.address, c1.stream.writer());
-            try ProtoParser.writeDelim(c1.stream.writer());
             try ProtoParser.writeTerminator(c1.stream.writer());
 
             std.log.info("完成了.", .{});
@@ -56,16 +56,39 @@ fn middle() !void {
 
 fn client(address: std.net.Address) !void {
     const stream = try std.net.tcpConnectToAddress(address);
+    defer stream.close();
     const blen = 1024;
     var buf = [1]u8{0} ** blen;
     const xunxi = try ProtoParser.duWanQuanXunXi(stream, buf[0..blen]);
 
-    //try tryConnect(response.peer.?);
     var response = ProtoParser.init(xunxi);
     try response.parse();
     std.log.debug("Got ip4: {?}", .{response.peer});
-    if (try response.isServer()) {
-        //const server = bindPort(ip4.getPort());
+    if (response.port) |port| {
+        // 因為有數字，是服務員
+        var server = try bindPort(port);
+        defer server.deinit();
+        std.log.debug("Bound to port: {d}", .{port});
+        const con = try server.accept();
+        var len: usize = 0;
+        var newbuf = [1]u8{0} ** 32;
+        while (len == 0) {
+            len = try con.stream.reader().read(newbuf[0..]);
+        }
+        std.log.debug("{s}", .{newbuf});
+    } else if (response.peer) |peer_addr| {
+        var cm = ConnectionManager{ .address = peer_addr };
+        while (!try cm.connect()) {
+            std.log.debug("無法連線...", .{});
+            std.time.sleep(500 * 1000);
+        }
+        if (cm.peer) |peer| {
+            _ = try peer.writer().write("你又胖又難看的人");
+            std.log.debug("傳送訊息了", .{});
+        }
+    } else {
+        std.log.err("Large error", .{});
+        return error{Malo}.Malo;
     }
 }
 
@@ -73,16 +96,6 @@ fn bindPort(port: u16) !std.net.Server {
     const ip = [4]u8{ 0, 0, 0, 0 };
     const addr = std.net.Address.initIp4(ip, port);
     return try addr.listen(.{ .reuse_address = true });
-}
-
-fn tryConnect(address: std.net.Address) !void {
-    const peer: ?std.net.Stream = std.net.tcpConnectToAddress(address) catch null;
-    if (peer) |con| {
-        if (try con.writer().write("你好，我愛你") == 0) {
-            std.log.err("大過", .{});
-            return error{cuole}.cuole;
-        }
-    }
 }
 
 pub fn main() !void {
