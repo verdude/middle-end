@@ -4,7 +4,7 @@ const ConnectionManager = @import("./connection_manager.zig");
 
 const os = std.os;
 
-const Flags = enum {};
+const client_errors = error{ MissingPeer, BadResponse };
 
 const Args = struct {
     iter: std.process.ArgIterator,
@@ -64,6 +64,7 @@ fn client(address: std.net.Address) !void {
     var response = ProtoParser.init(xunxi);
     try response.parse();
     std.log.debug("Got ip4: {?}", .{response.peer});
+
     if (response.port) |port| {
         // 因為有數字，是服務員
         var server = try bindPort(port);
@@ -76,19 +77,22 @@ fn client(address: std.net.Address) !void {
             len = try con.stream.reader().read(newbuf[0..]);
         }
         std.log.debug("{s}", .{newbuf});
+        var gpa = std.heap.GeneralPurposeAllocator{};
+        var cm = ConnectionManager{
+            .address = response.peer orelse return client_errors.MissingPeer,
+            .xintiao_jiange = 1500,
+            .alloc = gpa.allocator(),
+        };
+        defer cm.deinit();
+        try cm.connect(10, 750);
     } else if (response.peer) |peer_addr| {
         var cm = ConnectionManager{ .address = peer_addr };
-        while (!try cm.connect()) {
-            std.log.debug("無法連線...", .{});
-            std.time.sleep(500 * 1000);
-        }
-        if (cm.peer) |peer| {
-            _ = try peer.writer().write("你又胖又難看的人");
-            std.log.debug("傳送訊息了", .{});
-        }
+        defer cm.deinit();
+        try cm.connect(0, 750);
+        try cm.heartbeat();
     } else {
         std.log.err("Large error", .{});
-        return error{Malo}.Malo;
+        return client_errors.BadResponse;
     }
 }
 
