@@ -30,17 +30,9 @@ fn addressFromSlice(val: []const u8) !std.net.Address {
     const port_start = j;
     while (std.ascii.isDigit(val[j])) : (j += 1) {}
     const port_end = port_start + j - port_start;
-    std.log.debug("Address comp: {s} {s}", .{ val[0..i], val[port_start..port_end] });
+    std.log.debug("Address comp: {x} {x}", .{ val[0..i], val[port_start..port_end] });
     const port = try std.fmt.parseInt(u16, val[port_start..port_end], 10);
     return try std.net.Address.parseIp4(val[0..i], port);
-}
-
-fn parsePort(val: []const u8) !?Field {
-    return Field{ .port = try std.fmt.parseInt(u16, val, 10) };
-}
-
-fn parsePeer(val: []const u8) !?Field {
-    return Field{ .peer = try addressFromSlice(val) };
 }
 
 fn getValue(self: *ProtoParser) ![]const u8 {
@@ -49,48 +41,48 @@ fn getValue(self: *ProtoParser) ![]const u8 {
     if (end_idx >= self.buf.len) {
         return error{MissingValue}.MissingValue;
     }
-    defer self.index = end_idx;
+    defer self.index = end_idx + 1;
     return self.buf[self.index..end_idx];
 }
 
-fn parseField(self: *ProtoParser) !?Field {
+fn parseField(self: *ProtoParser) !Field {
     const len = peer_str.len;
-    const next_field = self.buf[self.index..len];
-    if (next_field.len != len) {
-        std.log.err("Invalid field: {s}", .{next_field});
-        return null;
-    }
-    self.index += len + 1;
+    const next_field = self.buf[self.index .. len + self.index];
+    self.index += len;
 
-    std.log.debug("Next field: {s}", .{next_field});
+    std.log.debug("Next field: {x}", .{next_field});
     if (std.mem.eql(u8, next_field, port_str)) {
-        return parsePort(try self.getValue());
+        return Field{ .port = try std.fmt.parseInt(u16, try self.getValue(), 10) };
     } else if (std.mem.eql(u8, next_field, peer_str)) {
-        return parsePeer(try self.getValue());
+        return Field{ .peer = try addressFromSlice(try self.getValue()) };
     }
     return error{InvalidField}.InvalidField;
 }
 
 pub fn parse(self: *ProtoParser) !void {
-    std.log.debug("Response: {s}", .{self.buf});
-    switch ((try self.parseField()).?) {
+    std.log.debug("Response: {x}", .{self.buf});
+    switch ((try self.parseField())) {
         .peer => |peer| {
             self.peer = peer;
             const next = try self.parseField();
-            if (next) |n| {
-                switch (n) {
-                    Field.peer => return error{DuplicatePeer}.DuplicatePeer,
-                    Field.port => |port| self.port = port,
-                }
+            switch (next) {
+                Field.peer => return error{DuplicatePeer}.DuplicatePeer,
+                Field.port => |port| self.port = port,
             }
         },
         .port => |port| {
             self.port = port;
-            switch ((try self.parseField()).?) {
+            switch ((try self.parseField())) {
                 Field.peer => |peer| self.peer = peer,
                 else => return error{MissingPeer}.MissingPeer,
             }
         },
+    }
+}
+
+pub fn writeDelim(writer: anytype) !void {
+    if (try writer.write(&.{0x10}) != 1) {
+        return error{WriteFailure}.WriteFailure;
     }
 }
 
@@ -99,9 +91,6 @@ pub fn writePeer(address: std.net.Address, writer: anytype) !void {
         return error{WriteFailure}.WriteFailure;
     }
     try address.format("", .{}, writer);
-    if (try writer.write(&.{0x10}) != 1) {
-        return error{WriteFailure}.WriteFailure;
-    }
 }
 
 pub fn writePort(port: u16, writer: anytype) !void {
@@ -115,9 +104,6 @@ pub fn writePort(port: u16, writer: anytype) !void {
         .{},
         writer,
     );
-    if (try writer.write(&.{0x10}) != 1) {
-        return error{WriteFailure}.WriteFailure;
-    }
 }
 
 pub fn isServer(self: *ProtoParser) !bool {
@@ -125,5 +111,30 @@ pub fn isServer(self: *ProtoParser) !bool {
         return true;
     } else {
         return false;
+    }
+}
+
+pub fn duWanQuanXunXi(stream: std.net.Stream, buf: []u8) ![]u8 {
+    var len = try stream.reader().read(buf);
+    while (true) {
+        const read = try stream.reader().read(buf[len..]);
+        if (read == 0) {
+            std.log.debug("Connection closed: {d}", .{read});
+            break;
+        }
+        len += read;
+        if (len > 1 and buf[len - 1] == 0x10 and buf[len - 2] == 0x10) {
+            std.log.debug("讀訊息完畢", .{});
+            break;
+        }
+    }
+    std.log.info("Received a message: {x}", .{buf[0..len]});
+    return buf[0..len];
+}
+
+pub fn writeTerminator(writer: anytype) !void {
+    if (try writer.write(&.{ 0x10, 0x10 }) != 2) {
+        std.log.err("試試寫錯了", .{});
+        return error{WriteFailure}.WriteFailure;
     }
 }

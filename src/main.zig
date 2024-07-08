@@ -28,27 +28,22 @@ fn middle() !void {
         const con = try server.accept();
 
         if (con1) |c1| {
-            std.log.info("第二連線{?}", .{con});
-            std.log.info("傳送到二：自己的數字：「{d}」", .{con.address.in.getPort()});
-            try ProtoParser.writePeer(
-                c1.address,
-                con.stream.writer(),
-            );
-            try ProtoParser.writePort(
-                con.address.in.getPort(),
-                con.stream.writer(),
-            );
             defer {
                 c1.stream.close();
                 con.stream.close();
             }
 
-            std.log.info("傳送到一: 自己的數字：「{d}」", .{c1.address.in.getPort()});
-            try con.address.format("", .{}, c1.stream.writer());
-            try ProtoParser.writePeer(
-                con.address,
-                c1.stream.writer(),
-            );
+            std.log.info("第二連線{?}", .{con});
+            std.log.info("傳送到二：自己的數字：「{d}」", .{con.address.in.getPort()});
+            try ProtoParser.writePort(con.address.in.getPort(), con.stream.writer());
+            try ProtoParser.writeDelim(con.stream.writer());
+            try ProtoParser.writePeer(c1.address, con.stream.writer());
+            try ProtoParser.writeTerminator(con.stream.writer());
+
+            std.log.info("傳送到一: 自己的數字：「{?}」", .{c1});
+            try ProtoParser.writePeer(con.address, c1.stream.writer());
+            try ProtoParser.writeDelim(c1.stream.writer());
+            try ProtoParser.writeTerminator(c1.stream.writer());
 
             std.log.info("完成了.", .{});
             break;
@@ -60,33 +55,18 @@ fn middle() !void {
 }
 
 fn client(address: std.net.Address) !void {
-    var stream = try std.net.tcpConnectToAddress(address);
-    var buf = [1]u8{0} ** 24;
-    if (try stream.reader().read(&buf) == 0) {
-        std.log.err("Connection closed...", .{});
-        return error{ProxyConnectionClosed}.ProxyConnectionClosed;
-    }
-    var response = ProtoParser.init(&buf);
+    const stream = try std.net.tcpConnectToAddress(address);
+    const blen = 1024;
+    var buf = [1]u8{0} ** blen;
+    const xunxi = try ProtoParser.duWanQuanXunXi(stream, buf[0..blen]);
+
+    //try tryConnect(response.peer.?);
+    var response = ProtoParser.init(xunxi);
     try response.parse();
     std.log.debug("Got ip4: {?}", .{response.peer});
     if (try response.isServer()) {
         //const server = bindPort(ip4.getPort());
     }
-
-    try tryConnect(response.peer.?);
-}
-
-fn waitForMessage(stream: std.net.Stream) !void {
-    var buf = [1]u8{0} ** 100;
-    var len = try stream.reader().read(&buf);
-    while (len == 0) {
-        len = try stream.reader().read(&buf);
-    }
-    if (len == 0) {
-        std.log.err("真的不好", .{});
-        return error{cuole}.cuole;
-    }
-    std.log.info("Received a message: {s}", .{buf[0..len]});
 }
 
 fn bindPort(port: u16) !std.net.Server {
@@ -102,7 +82,6 @@ fn tryConnect(address: std.net.Address) !void {
             std.log.err("大過", .{});
             return error{cuole}.cuole;
         }
-        try waitForMessage(con);
     }
 }
 
