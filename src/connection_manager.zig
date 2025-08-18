@@ -11,7 +11,7 @@ const errors = error{
 
 peer: ?Stream = null,
 address: Address,
-xintiao_jiange: u64,
+xintiao_jiange: u64 = 1500,
 alloc: std.mem.Allocator,
 
 pub fn tryConnect(self: *ConnectionManager) !bool {

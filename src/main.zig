@@ -77,7 +77,7 @@ fn client(address: std.net.Address) !void {
             len = try con.stream.reader().read(newbuf[0..]);
         }
         std.log.debug("{s}", .{newbuf});
-        var gpa = std.heap.GeneralPurposeAllocator{};
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
         var cm = ConnectionManager{
             .address = response.peer orelse return client_errors.MissingPeer,
             .xintiao_jiange = 1500,
@@ -86,10 +86,11 @@ fn client(address: std.net.Address) !void {
         defer cm.deinit();
         try cm.connect(10, 750);
     } else if (response.peer) |peer_addr| {
-        var cm = ConnectionManager{ .address = peer_addr };
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        var cm = ConnectionManager{ .address = peer_addr, .alloc = gpa.allocator() };
         defer cm.deinit();
         try cm.connect(0, 750);
-        try cm.heartbeat();
+        try cm.xintiao();
     } else {
         std.log.err("Large error", .{});
         return client_errors.BadResponse;
