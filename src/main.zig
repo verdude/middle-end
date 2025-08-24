@@ -25,6 +25,9 @@ fn middle() !void {
     var server = try bindPort(5850);
     defer server.deinit();
     var con1: ?std.net.Server.Connection = null;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
+    var alloc = arena.allocator();
     while (true) {
         const con = try server.accept();
 
@@ -33,17 +36,22 @@ fn middle() !void {
                 c1.stream.close();
                 con.stream.close();
             }
-
-            std.log.info("第二連線{?}", .{con});
+            std.log.info("第二連線{any}", .{con});
             std.log.info("傳送到二：自己的數字：「{d}」", .{con.address.in.getPort()});
-            try ProtoParser.writePort(con.address.in.getPort(), con.stream.writer());
-            try ProtoParser.writeDelim(con.stream.writer());
-            try ProtoParser.writePeer(c1.address, con.stream.writer());
-            try ProtoParser.writeTerminator(con.stream.writer());
+            const buf = try alloc.alloc(u8, 128);
+            const writer = con.stream.writer(buf);
+            var interface = writer.interface;
+            try ProtoParser.writePort(con.address.in.getPort(), &interface);
+            try ProtoParser.writeDelim(&interface);
+            try ProtoParser.writePeer(c1.address, &interface);
+            try ProtoParser.writeTerminator(&interface);
 
-            std.log.info("傳送到一: 自己的數字：「{?}」", .{c1});
-            try ProtoParser.writePeer(con.address, c1.stream.writer());
-            try ProtoParser.writeTerminator(c1.stream.writer());
+            std.log.info("傳送到一: 自己的數字：「{f}」", .{c1.address});
+            const c1_buf = try alloc.alloc(u8, 128);
+            const c1_writer = con.stream.writer(c1_buf);
+            var c1_interface = c1_writer.interface;
+            try ProtoParser.writePeer(con.address, &c1_interface);
+            try ProtoParser.writeTerminator(&c1_interface);
 
             std.log.info("完成了.", .{});
             break;
@@ -59,11 +67,12 @@ fn client(address: std.net.Address) !void {
     defer stream.close();
     const blen = 1024;
     var buf = [1]u8{0} ** blen;
-    const xunxi = try ProtoParser.duWanQuanXunXi(stream, buf[0..blen]);
+    var reader = stream.reader(&buf);
+    const xunxi = try ProtoParser.duWanQuanXunXi(reader.interface());
 
     var response = ProtoParser.init(xunxi);
     try response.parse();
-    std.log.debug("Got ip4: {?}", .{response.peer});
+    std.log.debug("Got ip4: {any}", .{response.peer});
 
     if (response.port) |port| {
         // 因為有數字，是服務員
@@ -71,24 +80,27 @@ fn client(address: std.net.Address) !void {
         defer server.deinit();
         std.log.debug("Bound to port: {d}", .{port});
         const con = try server.accept();
-        var len: usize = 0;
         var newbuf = [1]u8{0} ** 32;
-        while (len == 0) {
-            len = try con.stream.reader().read(newbuf[0..]);
-        }
+        reader = con.stream.reader(&newbuf);
+        var interface = reader.interface();
+        _ = try interface.peek(1);
         std.log.debug("{s}", .{newbuf});
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        var arena = std.heap.ArenaAllocator.init(gpa.allocator());
         var cm = ConnectionManager{
             .address = response.peer orelse return client_errors.MissingPeer,
             .xintiao_jiange = 1500,
-            .alloc = gpa.allocator(),
+            .alloc = arena.allocator(),
         };
         defer cm.deinit();
+        defer arena.deinit();
         try cm.connect(10, 750);
     } else if (response.peer) |peer_addr| {
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-        var cm = ConnectionManager{ .address = peer_addr, .alloc = gpa.allocator() };
+        var arena = std.heap.ArenaAllocator.init(gpa.allocator());
+        var cm = ConnectionManager{ .address = peer_addr, .alloc = arena.allocator() };
         defer cm.deinit();
+        defer arena.deinit();
         try cm.connect(0, 750);
         try cm.xintiao();
     } else {

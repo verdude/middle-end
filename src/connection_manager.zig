@@ -41,7 +41,7 @@ pub fn connect(self: *ConnectionManager, n: u8, ms: u64) !void {
 
         if (attempts > 1) {
             std.log.debug("無法連線。可以試試再{d}次。", .{attempts});
-            std.time.sleep(ms * 1000);
+            std.Thread.sleep(ms * 1000);
             attempts -= 1;
         }
     }
@@ -67,14 +67,13 @@ fn read(self: *ConnectionManager) ![]const u8 {
 
 pub fn xintiao(self: *ConnectionManager) !void {
     if (self.peer) |peer| {
+        const buf = try self.alloc.alloc(u8, 32);
+        const writer = peer.writer(buf);
+        var interface = writer.interface;
         while (true) {
-            const written = try peer.writer().write("心跳");
-            if (written == 0) {
-                std.log.debug("連線關了", .{});
-                return;
-            }
+            try interface.writeAll("心跳");
             std.log.debug("傳送心跳了", .{});
-            std.time.sleep(self.xintiao_jiange);
+            std.Thread.sleep(self.xintiao_jiange);
         }
     } else {
         return errors.NoPeer;

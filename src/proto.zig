@@ -125,51 +125,33 @@ pub fn parse(self: *ProtoParser) !void {
     }
 }
 
-pub fn writeDelim(writer: anytype) !void {
+pub fn writeDelim(writer: *std.Io.Writer) !void {
     if (try writer.write(&.{10}) != 1) {
         return error{WriteFailure}.WriteFailure;
     }
 }
 
-pub fn writePeer(address: std.net.Address, writer: anytype) !void {
+pub fn writePeer(address: std.net.Address, writer: *std.Io.Writer) !void {
     if (try writer.write(peer_str) != port_str.len) {
         return error{WriteFailure}.WriteFailure;
     }
-    try address.format("", .{}, writer);
+    try writer.print("{f}", .{address});
 }
 
-pub fn writePort(port: u16, writer: anytype) !void {
+pub fn writePort(port: u16, writer: *std.Io.Writer) !void {
     if (try writer.write(port_str) != port_str.len) {
         return error{WriteFailure}.WriteFailure;
     }
-    try std.fmt.formatInt(
-        port,
-        10,
-        std.fmt.Case.upper,
-        .{},
-        writer,
-    );
+    try writer.print("{d}", .{port});
 }
 
-pub fn duWanQuanXunXi(stream: std.net.Stream, buf: []u8) ![]u8 {
-    var len = try stream.reader().read(buf);
-    while (true) {
-        const read = try stream.reader().read(buf[len..]);
-        if (read == 0) {
-            std.log.debug("Connection closed: {d}", .{read});
-            break;
-        }
-        len += read;
-        if (len > 1 and buf[len - 1] == 10 and buf[len - 2] == 10) {
-            std.log.debug("讀訊息完畢", .{});
-            break;
-        }
-    }
-    std.log.debug("Received a message: {x}", .{buf[0..len]});
-    return buf[0..len];
+pub fn duWanQuanXunXi(reader: *std.Io.Reader) ![]u8 {
+    const xunxi = try reader.takeDelimiterExclusive(0);
+    std.log.debug("Received a message: {x}", .{xunxi});
+    return xunxi;
 }
 
-pub fn writeTerminator(writer: anytype) !void {
+pub fn writeTerminator(writer: *std.Io.Writer) !void {
     if (try writer.write(&.{ 10, 10 }) != 2) {
         std.log.err("試試寫錯了", .{});
         return error{WriteFailure}.WriteFailure;
